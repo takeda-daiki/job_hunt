@@ -1,0 +1,9 @@
+{
+  "name": "就職条件ノート",
+  "short_name": "就職条件",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#20242d",
+  "description": "就職条件・企業情報・T_free / M_free を管理する個人用Webアプリ"
+}
