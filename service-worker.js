@@ -1,4 +1,4 @@
-const CACHE = 'job-conditions-shell-v1.1';
+const CACHE = 'job-conditions-shell-v1.2';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest'];
 
 self.addEventListener('install', event => {
