@@ -147,6 +147,8 @@ const state = {
   showRejected:false, interviewTab:'home', interviewMasterTab:'questions', interviewCompanyId:null, interviewEventId:null, conditionSubTab:'higher'
 };
 
+let bootPromise = null;
+
 function mergeDeep(base, patch){
   if (Array.isArray(base)) return Array.isArray(patch) ? patch : base;
   const out = {...base};
@@ -314,7 +316,9 @@ async function init(){
   if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(console.warn);
 }
 async function boot(){
-  await loadAll(); await ensureInitialData(); await loadAll(); render();
+  if(bootPromise) return bootPromise;
+  bootPromise=(async()=>{await loadAll();await ensureInitialData();await loadAll();render();})();
+  try{return await bootPromise;}finally{bootPromise=null;}
 }
 async function loadAll(){
   const uid=state.user.id;
@@ -349,12 +353,16 @@ async function ensureInitialData(){
   if(!sc?.length) await db(supabase.from('scenarios').insert(DEFAULT_SCENARIOS.map(x=>({...x,user_id:uid}))));
   const {data:co}=await supabase.from('conditions').select('id').eq('user_id',uid).is('deleted_at',null);
   if(!co?.length) await db(supabase.from('conditions').insert({user_id:uid,name:'純自由時間 2時間以上',category:'higher',eval_type:'numeric',variable_key:'tfree',operator:'>=',threshold:2,unit:'h/日',order_index:0}));
-  const {data:iq}=await supabase.from('interview_questions').select('id').eq('user_id',uid).is('deleted_at',null);
-  if(!iq?.length) await db(supabase.from('interview_questions').insert(DEFAULT_INTERVIEW_QUESTIONS.map(([category,question],i)=>({user_id:uid,category,question,prep_status:'not_started',order_index:i}))));
-  const {data:ie}=await supabase.from('interview_episodes').select('id').eq('user_id',uid).is('deleted_at',null);
-  if(!ie?.length) await db(supabase.from('interview_episodes').insert(DEFAULT_INTERVIEW_EPISODES.map((title,i)=>({user_id:uid,title,order_index:i}))));
-  const {data:rq}=await supabase.from('reverse_questions').select('id').eq('user_id',uid).is('deleted_at',null);
-  if(!rq?.length) await db(supabase.from('reverse_questions').insert(DEFAULT_REVERSE_QUESTIONS.map(([category,text],i)=>({user_id:uid,company_id:null,category,text,selected_for_next:false,order_index:i}))));
+  const {data:iq}=await supabase.from('interview_questions').select('category,question').eq('user_id',uid).is('deleted_at',null);
+  const existingQ=new Set((iq||[]).map(x=>`${x.category}\u0000${x.question}`));
+  const missingQ=DEFAULT_INTERVIEW_QUESTIONS.filter(([category,question])=>!existingQ.has(`${category}\u0000${question}`));
+  if(missingQ.length){const base=(iq||[]).length;await db(supabase.from('interview_questions').insert(missingQ.map(([category,question],i)=>({user_id:uid,category,question,prep_status:'not_started',order_index:base+i}))));}
+  const {data:ie}=await supabase.from('interview_episodes').select('title').eq('user_id',uid).is('deleted_at',null);
+  const existingE=new Set((ie||[]).map(x=>x.title)); const missingE=DEFAULT_INTERVIEW_EPISODES.filter(title=>!existingE.has(title));
+  if(missingE.length){const base=(ie||[]).length;await db(supabase.from('interview_episodes').insert(missingE.map((title,i)=>({user_id:uid,title,order_index:base+i}))));}
+  const {data:rq}=await supabase.from('reverse_questions').select('category,text').eq('user_id',uid).is('deleted_at',null).is('company_id',null);
+  const existingR=new Set((rq||[]).map(x=>`${x.category}\u0000${x.text}`)); const missingR=DEFAULT_REVERSE_QUESTIONS.filter(([category,text])=>!existingR.has(`${category}\u0000${text}`));
+  if(missingR.length){const base=(rq||[]).length;await db(supabase.from('reverse_questions').insert(missingR.map(([category,text],i)=>({user_id:uid,company_id:null,category,text,selected_for_next:false,order_index:base+i}))));}
 }
 
 function shell(content,title){
@@ -464,9 +472,38 @@ function interviewMasterPage(){
   const tab=state.interviewMasterTab||'questions';
   return `<div class="toolbar"><div class="tabs" style="margin:0"><button class="tab ${tab==='questions'?'active':''}" data-action="master-subtab" data-subtab="questions">質問</button><button class="tab ${tab==='episodes'?'active':''}" data-action="master-subtab" data-subtab="episodes">エピソード庫</button></div><button class="btn primary" data-action="${tab==='questions'?'add-master-question':'add-episode'}">＋${tab==='questions'?'質問':'エピソード'}追加</button></div>${tab==='questions'?masterQuestionsList():episodeList()}`;
 }
+function questionStatusBadge(status){
+  const label=QUESTION_STATUS_LABEL[status]||status;
+  const cls=status==='ready'?'ready':status==='draft'?'draft':'not-started';
+  return `<span class="question-status ${cls}">${esc(label)}</span>`;
+}
+function linkedEpisodesForQuestion(questionId){
+  const ids=new Set(state.questionEpisodeLinks.filter(x=>x.question_id===questionId).map(x=>x.episode_id));
+  return state.interviewEpisodes.filter(ep=>ids.has(ep.id));
+}
+function linkedQuestionsForEpisode(episodeId){
+  const ids=new Set(state.questionEpisodeLinks.filter(x=>x.episode_id===episodeId).map(x=>x.question_id));
+  return state.interviewQuestions.filter(q=>!q.is_hidden&&ids.has(q.id));
+}
+function questionAnswerPreview(q){
+  const candidates=[['1分版',q.answer_60],['30秒版',q.answer_30],['3分版',q.answer_180],['要点',q.key_points]];
+  const found=candidates.find(([,v])=>v&&String(v).trim());
+  if(!found)return `<div class="answer-preview empty-answer">回答はまだ作成されていません。</div>`;
+  return `<div class="answer-preview"><span class="answer-preview-label">${found[0]}</span><div class="answer-preview-text">${esc(found[1])}</div></div>`;
+}
+function episodeChipsForQuestion(q){
+  const eps=linkedEpisodesForQuestion(q.id);
+  if(!eps.length)return `<div class="episode-link-row muted tiny">使用エピソード：未設定</div>`;
+  return `<div class="episode-link-row"><span class="tiny muted">使用エピソード</span><div class="episode-chip-wrap">${eps.map(ep=>`<button class="episode-chip" data-action="edit-episode" data-episode-id="${ep.id}" title="エピソードを開く">${esc(ep.title)}</button>`).join('')}</div></div>`;
+}
 function masterQuestionsList(){
-  const preferred=['基本','研究・実績','自己分析','協働','進路','志望','技術・専門','働き方','逆質問','その他'];const present=[...new Set(state.interviewQuestions.filter(x=>!x.is_hidden).map(x=>x.category||'その他'))];const cats=[...preferred.filter(x=>present.includes(x)),...present.filter(x=>!preferred.includes(x))];
-  return cats.map(cat=>{const list=state.interviewQuestions.filter(x=>!x.is_hidden&&(x.category||'その他')===cat).sort((a,b)=>a.order_index-b.order_index);return `<details class="accordion" open><summary>${esc(cat)} <span class="tiny muted">${list.filter(x=>x.prep_status==='ready').length}/${list.length} 準備済み</span></summary><div class="accordion-body"><div class="master-question-list" data-question-sort="${esc(cat)}">${list.map(q=>`<div class="master-question-row" data-question-id="${q.id}"><span class="drag-handle">☰</span><div class="master-question-main"><b>${esc(q.question)}</b><div class="tiny muted">${QUESTION_STATUS_LABEL[q.prep_status]||q.prep_status}${q.answer_30?' / 30秒あり':''}${q.answer_60?' / 1分あり':''}</div></div><button class="btn" data-action="edit-master-question" data-question-id="${q.id}">開く</button></div>`).join('')}</div></div></details>`;}).join('')||'<div class="card empty">質問がありません。</div>';
+  const preferred=['基本','研究・実績','自己分析','協働','進路','志望','技術・専門','働き方','逆質問','その他'];
+  const present=[...new Set(state.interviewQuestions.filter(x=>!x.is_hidden).map(x=>x.category||'その他'))];
+  const cats=[...preferred.filter(x=>present.includes(x)),...present.filter(x=>!preferred.includes(x))];
+  return cats.map(cat=>{
+    const list=state.interviewQuestions.filter(x=>!x.is_hidden&&(x.category||'その他')===cat).sort((a,b)=>a.order_index-b.order_index);
+    return `<details class="accordion" open><summary>${esc(cat)} <span class="tiny muted">${list.filter(x=>x.prep_status==='ready').length}/${list.length} 準備済み</span></summary><div class="accordion-body"><div class="master-question-list" data-question-sort="${esc(cat)}">${list.map(q=>`<div class="master-question-row question-card" data-question-id="${q.id}"><span class="drag-handle">☰</span><div class="master-question-main"><div class="question-card-head"><b>${esc(q.question)}</b>${questionStatusBadge(q.prep_status)}</div>${questionAnswerPreview(q)}${episodeChipsForQuestion(q)}</div><button class="btn" data-action="edit-master-question" data-question-id="${q.id}">編集</button></div>`).join('')}</div></div></details>`;
+  }).join('')||'<div class="card empty">質問がありません。</div>';
 }
 function setupQuestionSortables(){
   $$('[data-question-sort]').forEach(el=>new Sortable(el,{animation:150,handle:'.drag-handle',ghostClass:'drag-ghost',onEnd:async()=>{const ids=$$('[data-question-id]',el).map(x=>x.dataset.questionId);for(let i=0;i<ids.length;i++)await db(supabase.from('interview_questions').update({order_index:i}).eq('id',ids[i]));await loadAll();}}));
@@ -475,7 +512,16 @@ function masterQuestionForm(q={}){
   const linked=new Set(state.questionEpisodeLinks.filter(x=>x.question_id===q.id).map(x=>x.episode_id));
   return `<form id="masterQuestionForm" data-id="${q.id||''}"><div class="form-grid"><div class="full"><label>質問 *</label><input class="input" name="question" value="${esc(q.question||'')}" required></div><div><label>カテゴリー</label><input class="input" name="category" value="${esc(q.category||'その他')}"></div><div><label>状態</label><select class="select" name="prep_status">${Object.entries(QUESTION_STATUS_LABEL).map(([k,l])=>`<option value="${k}" ${(q.prep_status||'not_started')===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="full"><label>要点（キーワード）</label><textarea class="textarea" name="key_points">${esc(q.key_points||'')}</textarea></div><div class="full"><label>30秒版</label><textarea class="textarea" name="answer_30">${esc(q.answer_30||'')}</textarea></div><div class="full"><label>1分版</label><textarea class="textarea" name="answer_60">${esc(q.answer_60||'')}</textarea></div><div class="full"><label>3分版</label><textarea class="textarea" name="answer_180">${esc(q.answer_180||'')}</textarea></div><div class="full"><label>メモ</label><textarea class="textarea" name="memo">${esc(q.memo||'')}</textarea></div><div class="full"><label>使うエピソード</label><div class="checkbox-grid">${state.interviewEpisodes.map(ep=>`<label class="check-card"><input type="checkbox" name="episodes" value="${ep.id}" ${linked.has(ep.id)?'checked':''}> ${esc(ep.title)}</label>`).join('')||'<span class="small muted">エピソードがありません。</span>'}</div></div></div><div class="row" style="margin-top:14px"><button class="btn primary">保存</button>${q.id?'<button type="button" class="btn danger" data-action="trash-master-question" data-question-id="'+q.id+'">削除</button>':''}</div></form>`;
 }
-function episodeList(){return `<div class="grid two">${state.interviewEpisodes.map(ep=>`<div class="card"><div class="company-name">${esc(ep.title)}</div><div class="small muted" style="margin-top:7px">${esc(ep.demonstrates||'')}</div><div class="row" style="margin-top:12px"><button class="btn" data-action="edit-episode" data-episode-id="${ep.id}">編集</button><button class="btn danger" data-action="trash-episode" data-episode-id="${ep.id}">削除</button></div></div>`).join('')||'<div class="card empty">エピソードがありません。</div>'}</div>`;}
+function episodeList(){
+  return `<div class="grid two">${state.interviewEpisodes.map(ep=>{
+    const qs=linkedQuestionsForEpisode(ep.id);
+    return `<div class="card episode-card"><div class="company-name">${esc(ep.title)}</div><div class="small muted" style="margin-top:7px">${esc(ep.demonstrates||'')}</div><div class="episode-linked-questions"><div class="tiny muted">紐づく質問 ${qs.length}件</div>${qs.length?`<div class="episode-chip-wrap">${qs.slice(0,4).map(q=>`<button class="question-link-chip" data-action="edit-master-question" data-question-id="${q.id}" title="質問を開く">${esc(q.question)}</button>`).join('')}${qs.length>4?`<button class="question-link-chip more" data-action="show-episode-links" data-episode-id="${ep.id}">＋${qs.length-4}件</button>`:''}</div>`:'<div class="tiny muted">まだ質問に紐づいていません。</div>'}</div><div class="row" style="margin-top:12px"><button class="btn" data-action="edit-episode" data-episode-id="${ep.id}">編集</button><button class="btn danger" data-action="trash-episode" data-episode-id="${ep.id}">削除</button></div></div>`;
+  }).join('')||'<div class="card empty">エピソードがありません。</div>'}</div>`;
+}
+function episodeLinksModal(ep){
+  const qs=linkedQuestionsForEpisode(ep.id);
+  return `<div class="small muted" style="margin-bottom:10px">「${esc(ep.title)}」を使用する質問</div>${qs.length?qs.map(q=>`<div class="card" style="margin-bottom:8px"><div class="row" style="justify-content:space-between"><div><b>${esc(q.question)}</b><div style="margin-top:6px">${questionStatusBadge(q.prep_status)}</div></div><button class="btn" data-action="edit-master-question" data-question-id="${q.id}">質問を開く</button></div></div>`).join(''):'<div class="card empty">紐づく質問はありません。</div>'}`;
+}
 function episodeForm(ep={}){return `<form id="episodeForm" data-id="${ep.id||''}"><div class="form-grid"><div class="full"><label>タイトル *</label><input class="input" name="title" value="${esc(ep.title||'')}" required></div>${[['situation','状況'],['task','課題'],['action','自分がしたこと'],['result','結果'],['demonstrates','この経験で示せること'],['memo','メモ']].map(([k,l])=>`<div class="full"><label>${l}</label><textarea class="textarea" name="${k}">${esc(ep[k]||'')}</textarea></div>`).join('')}</div><button class="btn primary" style="margin-top:14px">保存</button></form>`;}
 function interviewCompaniesPage(){
   if(state.interviewCompanyId){const c=state.companies.find(x=>x.id===state.interviewCompanyId);if(c)return interviewCompanyDetail(c);state.interviewCompanyId=null;}
@@ -584,6 +630,7 @@ function bindEvents(){
     if(action==='trash-master-question'){if(confirm('この質問を削除しますか？')){await db(supabase.from('interview_questions').update({deleted_at:nowIso()}).eq('id',a.dataset.questionId));await loadAll();closeModal();render();}return;}
     if(action==='add-episode'){openModal('エピソード追加',episodeForm());return;}
     if(action==='edit-episode'){const ep=state.interviewEpisodes.find(x=>x.id===a.dataset.episodeId);if(ep)openModal('エピソード編集',episodeForm(ep));return;}
+    if(action==='show-episode-links'){const ep=state.interviewEpisodes.find(x=>x.id===a.dataset.episodeId);if(ep)openModal('紐づく質問',episodeLinksModal(ep));return;}
     if(action==='trash-episode'){if(confirm('このエピソードを削除しますか？')){await db(supabase.from('interview_episodes').update({deleted_at:nowIso()}).eq('id',a.dataset.episodeId));await loadAll();render();}return;}
     if(action==='open-interview-company'){state.page='interview';state.interviewTab='companies';state.interviewCompanyId=a.dataset.companyId;render();if(a.dataset.direct==='1'){setTimeout(()=>{const c=state.companies.find(x=>x.id===state.interviewCompanyId);if(c)openModal('直前確認',directReviewModal(c));},0);}return;}
     if(action==='back-interview-companies'){state.interviewCompanyId=null;render();return;}
@@ -742,7 +789,7 @@ async function submitEventQuestion(f){const fd=new FormData(f),id=f.dataset.id,q
 async function submitCareerPlanOverview(f){state.settings.careerPlanOverview=new FormData(f).get('overview')||'';await saveSettings();render();setTimeout(setupMilestoneSortable,0);}
 async function submitMilestone(f){const fd=new FormData(f),id=f.dataset.id,max=Math.max(-1,...state.careerMilestones.map(x=>x.order_index||0)),payload={user_id:state.user.id,title:fd.get('title'),target_date:fd.get('target_date')||null,status:fd.get('status'),memo:fd.get('memo')||null};if(id)await db(supabase.from('career_milestones').update(payload).eq('id',id));else await db(supabase.from('career_milestones').insert({...payload,order_index:max+1}));await loadAll();closeModal();render();setTimeout(setupMilestoneSortable,0);}
 
-async function exportJson(){const payload={version:'1.2',exportedAt:nowIso(),appSettings:state.settings,scenarios:state.scenarios,companies:state.companies,companyValues:state.companyValues,conditions:state.conditions,conditionEvals:state.conditionEvals,notes:state.notes,attachments:state.attachments,interviewQuestions:state.interviewQuestions,interviewEpisodes:state.interviewEpisodes,questionEpisodeLinks:state.questionEpisodeLinks,interviewPreps:state.interviewPreps,companyAnswerOverrides:state.companyAnswerOverrides,reverseQuestions:state.reverseQuestions,interviewEvents:state.interviewEvents,interviewEventQuestions:state.interviewEventQuestions,careerMilestones:state.careerMilestones};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`job-conditions-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);alert('JSONを保存しました。添付ファイル本体はSupabase Storageに残り、このJSONには添付メタデータのみ含まれます。');}
+async function exportJson(){const payload={version:'1.3',exportedAt:nowIso(),appSettings:state.settings,scenarios:state.scenarios,companies:state.companies,companyValues:state.companyValues,conditions:state.conditions,conditionEvals:state.conditionEvals,notes:state.notes,attachments:state.attachments,interviewQuestions:state.interviewQuestions,interviewEpisodes:state.interviewEpisodes,questionEpisodeLinks:state.questionEpisodeLinks,interviewPreps:state.interviewPreps,companyAnswerOverrides:state.companyAnswerOverrides,reverseQuestions:state.reverseQuestions,interviewEvents:state.interviewEvents,interviewEventQuestions:state.interviewEventQuestions,careerMilestones:state.careerMilestones};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`job-conditions-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);alert('JSONを保存しました。添付ファイル本体はSupabase Storageに残り、このJSONには添付メタデータのみ含まれます。');}
 function openImport(){openModal('JSONから復元',`<div class="setup-card"><b>注意：</b>第一版の復元は「バックアップ内容を上書き・追加」します。添付ファイル本体は再アップロードしません。</div><form id="importForm"><input class="input" type="file" name="file" accept="application/json" required><button class="btn primary" style="margin-top:14px">復元を実行</button></form>`);}
 async function submitImport(f){if(!confirm('JSONバックアップを復元しますか？'))return;const file=new FormData(f).get('file'),obj=JSON.parse(await file.text()),uid=state.user.id;if(obj.appSettings){state.settings=mergeDeep(structuredClone(DEFAULT_SETTINGS),obj.appSettings);await saveSettings();}const upsert=async(table,rows,soft=true)=>{if(!rows?.length)return;const clean=rows.map(r=>soft?({...r,user_id:uid,deleted_at:null}):({...r,user_id:uid}));await db(supabase.from(table).upsert(clean));};await upsert('scenarios',obj.scenarios);await upsert('companies',obj.companies);await upsert('company_values',obj.companyValues);await upsert('conditions',obj.conditions);await upsert('company_condition_evals',obj.conditionEvals);await upsert('notes',obj.notes);await upsert('attachments',obj.attachments);await upsert('interview_questions',obj.interviewQuestions);await upsert('interview_episodes',obj.interviewEpisodes);await upsert('interview_question_episode_links',obj.questionEpisodeLinks,false);await upsert('company_interview_preps',obj.interviewPreps);await upsert('company_answer_overrides',obj.companyAnswerOverrides);await upsert('reverse_questions',obj.reverseQuestions);await upsert('interview_events',obj.interviewEvents);await upsert('interview_event_questions',obj.interviewEventQuestions);await upsert('career_milestones',obj.careerMilestones);await loadAll();closeModal();render();}
 async function showTrash(){const tables=['companies','scenarios','notes','conditions','interview_questions','interview_episodes','company_interview_preps','company_answer_overrides','reverse_questions','interview_events','interview_event_questions','career_milestones'];const blocks=[];for(const t of tables){const data=await db(supabase.from(t).select('*').eq('user_id',state.user.id).not('deleted_at','is',null).order('deleted_at',{ascending:false}));if(data.length)blocks.push(`<div class="section-title">${t}</div>${data.map(x=>`<div class="card row" style="justify-content:space-between;margin-bottom:7px"><span>${esc(x.name||x.title||x.id)}</span><button class="btn" data-action="restore-trash" data-table="${t}" data-id="${x.id}">復元</button></div>`).join('')}`);}openModal('ゴミ箱',blocks.join('')||'<div class="empty">ゴミ箱は空です。</div>');}

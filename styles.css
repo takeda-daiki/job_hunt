@@ -128,3 +128,29 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
   .condition-manage-row,.master-question-row,.milestone-row{align-items:flex-start;flex-wrap:wrap}
   .condition-manage-main,.master-question-main{min-width:calc(100% - 40px)}
 }
+
+/* v1.3 interview master readability */
+.question-card{align-items:flex-start;padding:13px 12px}
+.question-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+.question-status{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;padding:5px 10px;border-radius:999px;font-size:.78rem;font-weight:850;border:1px solid transparent;letter-spacing:.01em}
+.question-status.not-started{background:#eef0f4;color:#596171;border-color:#d9dde5}
+.question-status.draft{background:#fff0d6;color:#8c5500;border-color:#f0cf93}
+.question-status.ready{background:#dff4e9;color:#176845;border-color:#b9dfcb}
+.answer-preview{margin-top:6px;padding:9px 10px;border-radius:11px;background:#f7f8fb;border:1px solid #e6e9ef}
+.answer-preview.empty-answer{color:var(--muted);font-size:.84rem;font-style:italic}
+.answer-preview-label{display:block;font-size:.72rem;font-weight:850;color:var(--accent);margin-bottom:4px}
+.answer-preview-text{font-size:.86rem;line-height:1.5;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.episode-link-row{display:flex;align-items:flex-start;gap:8px;margin-top:9px;flex-wrap:wrap}
+.episode-chip-wrap{display:flex;gap:6px;flex-wrap:wrap}
+.episode-chip,.question-link-chip{border:1px solid #cfd6ed;background:#f5f7ff;color:#334da9;border-radius:999px;padding:4px 8px;font-size:.75rem;font-weight:700;line-height:1.25;text-align:left}
+.episode-chip:hover,.question-link-chip:hover{background:#e9edff;border-color:#aebbe8}
+.question-link-chip.more{color:var(--muted);background:#f5f6f8;border-color:var(--line)}
+.episode-linked-questions{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:grid;gap:7px}
+.episode-card{min-width:0}
+@media(max-width:820px){
+  .question-card-head{align-items:flex-start}
+  .question-status{font-size:.74rem;padding:5px 8px}
+  .answer-preview-text{-webkit-line-clamp:5}
+  .master-question-row.question-card{display:grid;grid-template-columns:auto 1fr;gap:8px}
+  .master-question-row.question-card>.btn{grid-column:2;justify-self:start}
+}
