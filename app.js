@@ -141,7 +141,7 @@ const DEFAULT_REVERSE_QUESTIONS = [
 ];
 
 const state = {
-  user:null, settings:structuredClone(DEFAULT_SETTINGS), scenarios:[], companies:[], companyValues:[], conditions:[], conditionEvals:[], notes:[], attachments:[],
+  user:null, settings:structuredClone(DEFAULT_SETTINGS), scenarios:[], companies:[], companyValues:[], conditions:[], conditionEvals:[], notes:[], attachments:[], esApplications:[], esQuestions:[],
   interviewQuestions:[], interviewEpisodes:[], questionEpisodeLinks:[], interviewPreps:[], companyAnswerOverrides:[], reverseQuestions:[], interviewEvents:[], interviewEventQuestions:[], careerMilestones:[],
   page:'companies', companyId:null, companyTab:'overview', noteScope:'all', noteSearch:'', compareSort:{key:null,dir:1}, saveState:'saved',
   showRejected:false, interviewTab:'home', interviewMasterTab:'questions', interviewCompanyId:null, interviewEventId:null, conditionSubTab:'higher'
@@ -174,6 +174,7 @@ function toast(msg){
   t.textContent=msg; t.classList.add('show');
   clearTimeout(toast._timer); toast._timer=setTimeout(()=>t.classList.remove('show'),3200);
 }
+function charCount(s){ return Array.from(String(s||'')).length; }
 function normalizeQuestionText(s){ return String(s||'').replace(/[\s\u3000]+/g,'').replace(/[。、,.!?！？「」『』・\-—―]/g,'').toLowerCase(); }
 function findSimilarMasterQuestion(text){
   const norm=normalizeQuestionText(text); if(norm.length<2) return null;
@@ -337,7 +338,7 @@ async function boot(){
 }
 async function loadAll(){
   const uid=state.user.id;
-  const [settings,scenarios,companies,values,conditions,evals,notes,attachments,interviewQuestions,interviewEpisodes,questionEpisodeLinks,interviewPreps,companyAnswerOverrides,reverseQuestions,interviewEvents,interviewEventQuestions,careerMilestones]=await Promise.all([
+  const [settings,scenarios,companies,values,conditions,evals,notes,attachments,esApplications,esQuestions,interviewQuestions,interviewEpisodes,questionEpisodeLinks,interviewPreps,companyAnswerOverrides,reverseQuestions,interviewEvents,interviewEventQuestions,careerMilestones]=await Promise.all([
     db(supabase.from('app_settings').select('*').eq('user_id',uid).maybeSingle()),
     db(supabase.from('scenarios').select('*').eq('user_id',uid).is('deleted_at',null).order('created_at')),
     db(supabase.from('companies').select('*').eq('user_id',uid).is('deleted_at',null).order('created_at')),
@@ -346,6 +347,8 @@ async function loadAll(){
     db(supabase.from('company_condition_evals').select('*').eq('user_id',uid).is('deleted_at',null)),
     db(supabase.from('notes').select('*').eq('user_id',uid).is('deleted_at',null).order('order_index')),
     db(supabase.from('attachments').select('*').eq('user_id',uid).is('deleted_at',null)),
+    db(supabase.from('es_applications').select('*').eq('user_id',uid).is('deleted_at',null).order('created_at',{ascending:false})),
+    db(supabase.from('es_questions').select('*').eq('user_id',uid).is('deleted_at',null).order('order_index')),
     db(supabase.from('interview_questions').select('*').eq('user_id',uid).is('deleted_at',null).order('order_index')),
     db(supabase.from('interview_episodes').select('*').eq('user_id',uid).is('deleted_at',null).order('order_index')),
     db(supabase.from('interview_question_episode_links').select('*').eq('user_id',uid)),
@@ -357,7 +360,7 @@ async function loadAll(){
     db(supabase.from('career_milestones').select('*').eq('user_id',uid).is('deleted_at',null).order('order_index'))
   ]);
   state.settings=mergeDeep(structuredClone(DEFAULT_SETTINGS),settings?.settings||{});
-  state.scenarios=scenarios||[]; state.companies=companies||[]; state.companyValues=values||[]; state.conditions=conditions||[]; state.conditionEvals=evals||[]; state.notes=notes||[]; state.attachments=attachments||[];
+  state.scenarios=scenarios||[]; state.companies=companies||[]; state.companyValues=values||[]; state.conditions=conditions||[]; state.conditionEvals=evals||[]; state.notes=notes||[]; state.attachments=attachments||[]; state.esApplications=esApplications||[]; state.esQuestions=esQuestions||[];
   state.interviewQuestions=interviewQuestions||[]; state.interviewEpisodes=interviewEpisodes||[]; state.questionEpisodeLinks=questionEpisodeLinks||[]; state.interviewPreps=interviewPreps||[]; state.companyAnswerOverrides=companyAnswerOverrides||[]; state.reverseQuestions=reverseQuestions||[]; state.interviewEvents=interviewEvents||[]; state.interviewEventQuestions=interviewEventQuestions||[]; state.careerMilestones=careerMilestones||[];
 }
 async function ensureInitialData(){
@@ -391,7 +394,7 @@ async function ensureInitialData(){
 function shell(content,title){
   const nav=(p,l)=>`<button class="nav-btn ${state.page===p?'active':''}" data-nav="${p}">${l}</button>`;
   const bnav=(p,l)=>`<button class="${state.page===p?'active':''}" data-nav="${p}">${l}</button>`;
-  return `<div class="app-shell"><aside class="sidebar"><div class="brand">就職条件ノート</div>${nav('companies','企業')}${nav('compare','比較')}${nav('interview','面接')}${nav('notes','メモ')}${nav('settings','設定')}</aside><main class="main"><div class="topbar"><div class="page-title">${esc(title)}</div><div id="saveStatus" class="save-status ${state.saveState}">${state.saveState==='error'?'⚠ 保存失敗':state.saveState==='saving'?'保存中…':'✓ 保存済み'}</div></div>${content}</main><nav class="bottom-nav">${bnav('companies','企業')}${bnav('compare','比較')}${bnav('interview','面接')}${bnav('notes','メモ')}${bnav('settings','設定')}</nav></div>`;
+  return `<div class="app-shell"><aside class="sidebar"><div class="brand">就職条件ノート</div>${nav('companies','企業')}${nav('compare','比較')}${nav('es','ES管理')}${nav('interview','面接')}${nav('notes','メモ')}${nav('settings','設定')}</aside><main class="main"><div class="topbar"><div class="page-title">${esc(title)}</div><div id="saveStatus" class="save-status ${state.saveState}">${state.saveState==='error'?'⚠ 保存失敗':state.saveState==='saving'?'保存中…':'✓ 保存済み'}</div></div>${content}</main><nav class="bottom-nav">${bnav('companies','企業')}${bnav('compare','比較')}${bnav('es','ES')}${bnav('interview','面接')}${bnav('notes','メモ')}${bnav('settings','設定')}</nav></div>`;
 }
 function render(){
   const root=$('#app');
@@ -399,6 +402,7 @@ function render(){
   if(!state.user){root.innerHTML=authView(); bindAuth(); return;}
   if(state.companyId){ const c=state.companies.find(x=>x.id===state.companyId); if(c){root.innerHTML=shell(companyDetail(c),c.name);return;} state.companyId=null; }
   if(state.page==='compare') root.innerHTML=shell(comparePage(),'企業比較');
+  else if(state.page==='es') root.innerHTML=shell(esPage(),'ES管理');
   else if(state.page==='interview') root.innerHTML=shell(interviewPage(),'面接準備');
   else if(state.page==='notes') root.innerHTML=shell(notesPage(),'メモ');
   else if(state.page==='settings') root.innerHTML=shell(settingsPage(),'設定');
@@ -594,6 +598,39 @@ function comparePage(){
   return `<div class="toolbar"><div class="row"><select class="select" data-action="display-set" style="width:auto">${sets.map(x=>`<option ${x.name===active?.name?'selected':''}>${esc(x.name)}</option>`).join('')}</select><button class="btn" data-action="new-display-set">＋表示セット</button>${rejected?`<button class="btn" data-action="toggle-rejected">${state.showRejected?'落選を隠す':`落選を表示 (${rejected})`}</button>`:''}</div><div class="muted small">Scenarioは企業ごとに選択</div></div><div class="table-wrap"><table><thead><tr><th>企業</th><th>状況</th><th>Scenario</th>${cols.map(k=>`<th data-action="sort-compare" data-key="${k}">${esc(COMPARE_COLUMNS[k]?.label||k)}</th>`).join('')}</tr></thead><tbody>${rows.map(({c,s,vals})=>`<tr><td><button class="icon-btn bold" data-company="${c.id}">${esc(c.name)}</button></td><td>${companyStatusBadge(c)}</td><td><select class="select" data-action="compare-scenario" data-company-id="${c.id}" style="min-width:130px">${state.scenarios.map(x=>`<option value="${x.id}" ${x.id===s?.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></td>${cols.map(k=>`<td class="mono">${COMPARE_COLUMNS[k]?.display?COMPARE_COLUMNS[k].display(vals[k]):vals[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
+function esPage(){
+  const cards=state.esApplications.map(esApplicationCard).join('');
+  return `<div class="toolbar"><div class="muted">選考ごとのESを保存し、設問と回答を一覧で全文確認できます。</div><button class="btn primary" data-action="add-es">＋ES追加</button></div><div class="es-list">${cards||'<div class="card empty">まだESがありません。</div>'}</div>`;
+}
+function esApplicationCard(app){
+  const company=state.companies.find(c=>String(c.id)===String(app.company_id||''));
+  const questions=state.esQuestions.filter(q=>q.es_application_id===app.id).sort((a,b)=>(a.order_index||0)-(b.order_index||0));
+  const questionHtml=questions.map((q,i)=>`<section class="es-question"><div class="es-question-head"><div class="es-question-number">設問${i+1}</div><div class="row"><button class="btn" data-action="edit-es-question" data-es-question-id="${q.id}">編集</button><button class="btn danger" data-action="trash-es-question" data-es-question-id="${q.id}">削除</button></div></div><div class="es-question-text">${esc(q.question)}</div><div class="es-answer-label">回答 <span class="es-char-count">${charCount(q.answer)}文字</span></div><div class="es-answer">${esc(q.answer||'')}</div></section>`).join('');
+  return `<article class="card es-card"><div class="es-card-head"><div><div class="es-title">${esc(app.title)}</div>${company?`<div class="small muted">${esc(company.name)}</div>`:''}</div><div class="row"><button class="btn" data-action="edit-es" data-es-id="${app.id}">選考情報を編集</button><button class="btn danger" data-action="trash-es" data-es-id="${app.id}">削除</button></div></div>${app.overview?`<div class="es-overview"><div class="tiny bold muted">概要</div><div>${esc(app.overview)}</div></div>`:''}<div class="es-question-list">${questionHtml||'<div class="empty small">まだ設問がありません。</div>'}</div><div><button class="btn primary" data-action="add-es-question" data-es-id="${app.id}">＋設問追加</button></div></article>`;
+}
+function esApplicationForm(app={}){
+  return `<form id="esApplicationForm" data-id="${app.id||''}"><div class="form-grid"><div class="full"><label>タイトル *</label><input class="input" name="title" value="${esc(app.title||'')}" required placeholder="例：〇〇会社 秋インターン"></div><div class="full"><label>関連企業（任意）</label><select class="select" name="company_id"><option value="">なし</option>${state.companies.map(c=>`<option value="${c.id}" ${String(app.company_id||'')===String(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div><div class="full"><label>概要</label><textarea class="textarea" name="overview" placeholder="選考概要、職種、選考フローなど">${esc(app.overview||'')}</textarea></div></div><button class="btn primary" style="margin-top:14px">保存</button></form>`;
+}
+function esQuestionForm(appId,q={}){
+  const counterId=`esAnswerCount-${q.id||'new'}`;
+  return `<form id="esQuestionForm" data-id="${q.id||''}" data-es-id="${appId}"><div class="form-field"><label>設問 *</label><textarea class="textarea" name="question" required placeholder="ESの設問を入力">${esc(q.question||'')}</textarea></div><div class="form-field" style="margin-top:12px"><label>回答</label><textarea class="textarea tall" name="answer" data-char-count-target="${counterId}" placeholder="回答を入力">${esc(q.answer||'')}</textarea><div id="${counterId}" class="char-count">${charCount(q.answer)}文字</div></div><button class="btn primary" style="margin-top:14px">保存</button></form>`;
+}
+async function submitEsApplication(f){
+  const fd=new FormData(f),id=f.dataset.id,stamp=nowIso();
+  const payload={user_id:state.user.id,title:String(fd.get('title')||'').trim(),company_id:fd.get('company_id')||null,overview:fd.get('overview')||null,updated_at:stamp};
+  if(!payload.title)throw new Error('タイトルを入力してください。');
+  if(id)await db(supabase.from('es_applications').update(payload).eq('id',id));else await db(supabase.from('es_applications').insert(payload));
+  await loadAll();closeModal();render();
+}
+async function submitEsQuestion(f){
+  const fd=new FormData(f),id=f.dataset.id,appId=f.dataset.esId,stamp=nowIso();
+  const question=String(fd.get('question')||'').trim(); if(!question)throw new Error('設問を入力してください。');
+  const payload={user_id:state.user.id,es_application_id:appId,question,answer:fd.get('answer')||'',updated_at:stamp};
+  if(id)await db(supabase.from('es_questions').update(payload).eq('id',id));else{const max=Math.max(-1,...state.esQuestions.filter(x=>x.es_application_id===appId).map(x=>x.order_index||0));await db(supabase.from('es_questions').insert({...payload,order_index:max+1}));}
+  await loadAll();closeModal();render();
+}
+function updateCharCounter(el){const id=el?.dataset.charCountTarget;if(!id)return;const out=document.getElementById(id);if(out)out.textContent=`${charCount(el.value)}文字`;}
+
 function notesPage(){
   const q=state.noteSearch.trim().toLowerCase();
   const hit=n=>!q||(n.title+' '+n.body+' '+(n.industry||'')).toLowerCase().includes(q);
@@ -658,6 +695,12 @@ function bindEvents(){
     const a=e.target.closest('[data-action]'); if(!a)return; const action=a.dataset.action;
     if(action==='close-modal'){closeModal();return;}
     if(action==='toggle-rejected'){state.showRejected=!state.showRejected;render();return;}
+    if(action==='add-es'){openModal('ES追加',esApplicationForm());return;}
+    if(action==='edit-es'){const app=state.esApplications.find(x=>x.id===a.dataset.esId);if(app)openModal('ES編集',esApplicationForm(app));return;}
+    if(action==='trash-es'){if(confirm('このESをゴミ箱へ移しますか？')){const stamp=nowIso();await db(supabase.from('es_applications').update({deleted_at:stamp,updated_at:stamp}).eq('id',a.dataset.esId));await loadAll();render();}return;}
+    if(action==='add-es-question'){openModal('設問追加',esQuestionForm(a.dataset.esId));return;}
+    if(action==='edit-es-question'){const q=state.esQuestions.find(x=>x.id===a.dataset.esQuestionId);if(q)openModal('設問・回答を編集',esQuestionForm(q.es_application_id,q));return;}
+    if(action==='trash-es-question'){if(confirm('この設問を削除しますか？')){const stamp=nowIso();await db(supabase.from('es_questions').update({deleted_at:stamp,updated_at:stamp}).eq('id',a.dataset.esQuestionId));await loadAll();render();}return;}
     if(action==='interview-subtab'){state.interviewTab=a.dataset.subtab;state.interviewCompanyId=null;state.interviewEventId=null;render();setTimeout(()=>{if(state.interviewTab==='master'&&state.interviewMasterTab==='questions')setupQuestionSortables();if(state.interviewTab==='plan')setupMilestoneSortable();},0);return;}
     if(action==='master-subtab'){state.interviewMasterTab=a.dataset.subtab;render();setTimeout(()=>{if(state.interviewMasterTab==='questions')setupQuestionSortables();},0);return;}
     if(action==='add-master-question'){openModal('マスター質問追加',masterQuestionForm());return;}
@@ -742,10 +785,10 @@ function bindEvents(){
     if(action==='make-primary'){const id=el.dataset.evidenceId,x=state.companyValues.find(v=>v.id===id);await db(supabase.from('company_values').update({is_primary:false}).eq('company_id',x.company_id).eq('variable_key',x.variable_key));await db(supabase.from('company_values').update({is_primary:true}).eq('id',id));await refreshVariableModal(x.variable_key);}
     if(action==='toggle-range'){const x=state.companyValues.find(v=>v.id===el.dataset.evidenceId);await db(supabase.from('company_values').update({is_range:el.checked}).eq('id',el.dataset.evidenceId));if(x)await refreshVariableModal(x.variable_key);}
   });
-  document.addEventListener('input',e=>{if(e.target.dataset.action==='note-search'){state.noteSearch=e.target.value;render();const x=$('[data-action="note-search"]');x?.focus();if(x)x.selectionStart=x.selectionEnd=x.value.length;}const sf=e.target.closest('#salarySplitForm');if(sf)updateSalarySplitPreview(sf);});
+  document.addEventListener('input',e=>{if(e.target.dataset.action==='note-search'){state.noteSearch=e.target.value;render();const x=$('[data-action="note-search"]');x?.focus();if(x)x.selectionStart=x.selectionEnd=x.value.length;}if(e.target.dataset.charCountTarget)updateCharCounter(e.target);const sf=e.target.closest('#salarySplitForm');if(sf)updateSalarySplitPreview(sf);});
   document.addEventListener('submit',async e=>{
-    const f=e.target;if(!['companyForm','evidenceForm','salarySplitForm','conditionValueForm','conditionMemoForm','noteForm','commonSettingsForm','defaultSettingsForm','scenarioEditForm','scenarioAddForm','conditionForm','displaySetForm','importForm','masterQuestionForm','episodeForm','interviewPrepForm','companyAnswerForm','reverseQuestionForm','interviewEventForm','eventQuestionForm','careerPlanOverviewForm','milestoneForm'].includes(f.id))return;e.preventDefault();
-    try{if(f.id==='companyForm')await submitCompany(f);else if(f.id==='evidenceForm')await submitEvidence(f);else if(f.id==='salarySplitForm')await submitSalarySplit(f);else if(f.id==='conditionValueForm')await submitConditionValue(f);else if(f.id==='conditionMemoForm')await submitConditionMemo(f);else if(f.id==='noteForm')await submitNote(f);else if(f.id==='commonSettingsForm')await submitRichSettings(f,'common',COMMON_DEFS);else if(f.id==='defaultSettingsForm')await submitRichSettings(f,'companyDefaults',VAR_DEFS);else if(f.id==='scenarioEditForm')await submitScenarioEdit(f);else if(f.id==='scenarioAddForm')await submitScenarioAdd(f);else if(f.id==='conditionForm')await submitCondition(f);else if(f.id==='displaySetForm')await submitDisplaySet(f);else if(f.id==='importForm')await submitImport(f);else if(f.id==='masterQuestionForm')await submitMasterQuestion(f);else if(f.id==='episodeForm')await submitEpisode(f);else if(f.id==='interviewPrepForm')await submitInterviewPrep(f);else if(f.id==='companyAnswerForm')await submitCompanyAnswer(f);else if(f.id==='reverseQuestionForm')await submitReverseQuestion(f);else if(f.id==='interviewEventForm')await submitInterviewEvent(f);else if(f.id==='eventQuestionForm')await submitEventQuestion(f);else if(f.id==='careerPlanOverviewForm')await submitCareerPlanOverview(f);else if(f.id==='milestoneForm')await submitMilestone(f);}catch(err){alert(err.message||String(err));}
+    const f=e.target;if(!['companyForm','evidenceForm','salarySplitForm','conditionValueForm','conditionMemoForm','noteForm','esApplicationForm','esQuestionForm','commonSettingsForm','defaultSettingsForm','scenarioEditForm','scenarioAddForm','conditionForm','displaySetForm','importForm','masterQuestionForm','episodeForm','interviewPrepForm','companyAnswerForm','reverseQuestionForm','interviewEventForm','eventQuestionForm','careerPlanOverviewForm','milestoneForm'].includes(f.id))return;e.preventDefault();
+    try{if(f.id==='companyForm')await submitCompany(f);else if(f.id==='evidenceForm')await submitEvidence(f);else if(f.id==='salarySplitForm')await submitSalarySplit(f);else if(f.id==='conditionValueForm')await submitConditionValue(f);else if(f.id==='conditionMemoForm')await submitConditionMemo(f);else if(f.id==='noteForm')await submitNote(f);else if(f.id==='esApplicationForm')await submitEsApplication(f);else if(f.id==='esQuestionForm')await submitEsQuestion(f);else if(f.id==='commonSettingsForm')await submitRichSettings(f,'common',COMMON_DEFS);else if(f.id==='defaultSettingsForm')await submitRichSettings(f,'companyDefaults',VAR_DEFS);else if(f.id==='scenarioEditForm')await submitScenarioEdit(f);else if(f.id==='scenarioAddForm')await submitScenarioAdd(f);else if(f.id==='conditionForm')await submitCondition(f);else if(f.id==='displaySetForm')await submitDisplaySet(f);else if(f.id==='importForm')await submitImport(f);else if(f.id==='masterQuestionForm')await submitMasterQuestion(f);else if(f.id==='episodeForm')await submitEpisode(f);else if(f.id==='interviewPrepForm')await submitInterviewPrep(f);else if(f.id==='companyAnswerForm')await submitCompanyAnswer(f);else if(f.id==='reverseQuestionForm')await submitReverseQuestion(f);else if(f.id==='interviewEventForm')await submitInterviewEvent(f);else if(f.id==='eventQuestionForm')await submitEventQuestion(f);else if(f.id==='careerPlanOverviewForm')await submitCareerPlanOverview(f);else if(f.id==='milestoneForm')await submitMilestone(f);}catch(err){alert(err.message||String(err));}
   });
 }
 
@@ -847,10 +890,10 @@ async function submitEventQuestion(f){
 async function submitCareerPlanOverview(f){state.settings.careerPlanOverview=new FormData(f).get('overview')||'';await saveSettings();render();setTimeout(setupMilestoneSortable,0);}
 async function submitMilestone(f){const fd=new FormData(f),id=f.dataset.id,max=Math.max(-1,...state.careerMilestones.map(x=>x.order_index||0)),payload={user_id:state.user.id,title:fd.get('title'),target_date:fd.get('target_date')||null,status:fd.get('status'),memo:fd.get('memo')||null};if(id)await db(supabase.from('career_milestones').update(payload).eq('id',id));else await db(supabase.from('career_milestones').insert({...payload,order_index:max+1}));await loadAll();closeModal();render();setTimeout(setupMilestoneSortable,0);}
 
-async function exportJson(){const payload={version:'1.3',exportedAt:nowIso(),appSettings:state.settings,scenarios:state.scenarios,companies:state.companies,companyValues:state.companyValues,conditions:state.conditions,conditionEvals:state.conditionEvals,notes:state.notes,attachments:state.attachments,interviewQuestions:state.interviewQuestions,interviewEpisodes:state.interviewEpisodes,questionEpisodeLinks:state.questionEpisodeLinks,interviewPreps:state.interviewPreps,companyAnswerOverrides:state.companyAnswerOverrides,reverseQuestions:state.reverseQuestions,interviewEvents:state.interviewEvents,interviewEventQuestions:state.interviewEventQuestions,careerMilestones:state.careerMilestones};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`job-conditions-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);alert('JSONを保存しました。添付ファイル本体はSupabase Storageに残り、このJSONには添付メタデータのみ含まれます。');}
+async function exportJson(){const payload={version:'1.4',exportedAt:nowIso(),appSettings:state.settings,scenarios:state.scenarios,companies:state.companies,companyValues:state.companyValues,conditions:state.conditions,conditionEvals:state.conditionEvals,notes:state.notes,attachments:state.attachments,esApplications:state.esApplications,esQuestions:state.esQuestions,interviewQuestions:state.interviewQuestions,interviewEpisodes:state.interviewEpisodes,questionEpisodeLinks:state.questionEpisodeLinks,interviewPreps:state.interviewPreps,companyAnswerOverrides:state.companyAnswerOverrides,reverseQuestions:state.reverseQuestions,interviewEvents:state.interviewEvents,interviewEventQuestions:state.interviewEventQuestions,careerMilestones:state.careerMilestones};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`job-conditions-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);alert('JSONを保存しました。添付ファイル本体はSupabase Storageに残り、このJSONには添付メタデータのみ含まれます。');}
 function openImport(){openModal('JSONから復元',`<div class="setup-card"><b>注意：</b>第一版の復元は「バックアップ内容を上書き・追加」します。添付ファイル本体は再アップロードしません。</div><form id="importForm"><input class="input" type="file" name="file" accept="application/json" required><button class="btn primary" style="margin-top:14px">復元を実行</button></form>`);}
-async function submitImport(f){if(!confirm('JSONバックアップを復元しますか？'))return;const file=new FormData(f).get('file'),obj=JSON.parse(await file.text()),uid=state.user.id;if(obj.appSettings){state.settings=mergeDeep(structuredClone(DEFAULT_SETTINGS),obj.appSettings);await saveSettings();}const upsert=async(table,rows,soft=true)=>{if(!rows?.length)return;const clean=rows.map(r=>soft?({...r,user_id:uid,deleted_at:null}):({...r,user_id:uid}));await db(supabase.from(table).upsert(clean));};await upsert('scenarios',obj.scenarios);await upsert('companies',obj.companies);await upsert('company_values',obj.companyValues);await upsert('conditions',obj.conditions);await upsert('company_condition_evals',obj.conditionEvals);await upsert('notes',obj.notes);await upsert('attachments',obj.attachments);await upsert('interview_questions',obj.interviewQuestions);await upsert('interview_episodes',obj.interviewEpisodes);await upsert('interview_question_episode_links',obj.questionEpisodeLinks,false);await upsert('company_interview_preps',obj.interviewPreps);await upsert('company_answer_overrides',obj.companyAnswerOverrides);await upsert('reverse_questions',obj.reverseQuestions);await upsert('interview_events',obj.interviewEvents);await upsert('interview_event_questions',obj.interviewEventQuestions);await upsert('career_milestones',obj.careerMilestones);await loadAll();closeModal();render();}
-async function showTrash(){const tables=['companies','scenarios','notes','conditions','interview_questions','interview_episodes','company_interview_preps','company_answer_overrides','reverse_questions','interview_events','interview_event_questions','career_milestones'];const blocks=[];for(const t of tables){const data=await db(supabase.from(t).select('*').eq('user_id',state.user.id).not('deleted_at','is',null).order('deleted_at',{ascending:false}));if(data.length)blocks.push(`<div class="section-title">${t}</div>${data.map(x=>`<div class="card row" style="justify-content:space-between;margin-bottom:7px"><span>${esc(x.name||x.title||x.id)}</span><button class="btn" data-action="restore-trash" data-table="${t}" data-id="${x.id}">復元</button></div>`).join('')}`);}openModal('ゴミ箱',blocks.join('')||'<div class="empty">ゴミ箱は空です。</div>');}
+async function submitImport(f){if(!confirm('JSONバックアップを復元しますか？'))return;const file=new FormData(f).get('file'),obj=JSON.parse(await file.text()),uid=state.user.id;if(obj.appSettings){state.settings=mergeDeep(structuredClone(DEFAULT_SETTINGS),obj.appSettings);await saveSettings();}const upsert=async(table,rows,soft=true)=>{if(!rows?.length)return;const clean=rows.map(r=>soft?({...r,user_id:uid,deleted_at:null}):({...r,user_id:uid}));await db(supabase.from(table).upsert(clean));};await upsert('scenarios',obj.scenarios);await upsert('companies',obj.companies);await upsert('company_values',obj.companyValues);await upsert('conditions',obj.conditions);await upsert('company_condition_evals',obj.conditionEvals);await upsert('notes',obj.notes);await upsert('attachments',obj.attachments);await upsert('es_applications',obj.esApplications);await upsert('es_questions',obj.esQuestions);await upsert('interview_questions',obj.interviewQuestions);await upsert('interview_episodes',obj.interviewEpisodes);await upsert('interview_question_episode_links',obj.questionEpisodeLinks,false);await upsert('company_interview_preps',obj.interviewPreps);await upsert('company_answer_overrides',obj.companyAnswerOverrides);await upsert('reverse_questions',obj.reverseQuestions);await upsert('interview_events',obj.interviewEvents);await upsert('interview_event_questions',obj.interviewEventQuestions);await upsert('career_milestones',obj.careerMilestones);await loadAll();closeModal();render();}
+async function showTrash(){const tables=['companies','scenarios','notes','conditions','es_applications','es_questions','interview_questions','interview_episodes','company_interview_preps','company_answer_overrides','reverse_questions','interview_events','interview_event_questions','career_milestones'];const blocks=[];for(const t of tables){const data=await db(supabase.from(t).select('*').eq('user_id',state.user.id).not('deleted_at','is',null).order('deleted_at',{ascending:false}));if(data.length)blocks.push(`<div class="section-title">${t}</div>${data.map(x=>`<div class="card row" style="justify-content:space-between;margin-bottom:7px"><span>${esc(x.name||x.title||x.question||x.id)}</span><button class="btn" data-action="restore-trash" data-table="${t}" data-id="${x.id}">復元</button></div>`).join('')}`);}openModal('ゴミ箱',blocks.join('')||'<div class="empty">ゴミ箱は空です。</div>');}
 async function restoreTrash(table,id){await db(supabase.from(table).update({deleted_at:null}).eq('id',id));await loadAll();await showTrash();render();}
 
 // Delegated special handling for malformed operator option text is avoided here; browser normalizes it.
