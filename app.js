@@ -377,7 +377,15 @@ async function ensureInitialData(){
   if(missingE.length){const base=(ie||[]).length;await db(supabase.from('interview_episodes').insert(missingE.map((title,i)=>({user_id:uid,title,order_index:base+i}))));}
   const {data:rq}=await supabase.from('reverse_questions').select('category,text').eq('user_id',uid).is('deleted_at',null).is('company_id',null);
   const existingR=new Set((rq||[]).map(x=>`${x.category}\u0000${x.text}`)); const missingR=DEFAULT_REVERSE_QUESTIONS.filter(([category,text])=>!existingR.has(`${category}\u0000${text}`));
-  if(missingR.length){const base=(rq||[]).length;await db(supabase.from('reverse_questions').insert(missingR.map(([category,text],i)=>({user_id:uid,company_id:null,category,text,selected_for_next:false,order_index:base+i}))));}
+  if(missingR.length){
+    // 複数タブ・複数回起動などが重なっても重複登録されないよう、1件ずつinsertしてDB側の一意制約違反(23505)だけは無視する。
+    const base=(rq||[]).length;
+    for(let i=0;i<missingR.length;i++){
+      const [category,text]=missingR[i];
+      const {error}=await supabase.from('reverse_questions').insert({user_id:uid,company_id:null,category,text,selected_for_next:false,order_index:base+i});
+      if(error && error.code!=='23505'){ console.error(error); throw error; }
+    }
+  }
 }
 
 function shell(content,title){
