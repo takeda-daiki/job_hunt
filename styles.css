@@ -154,3 +154,8 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
   .master-question-row.question-card{display:grid;grid-template-columns:auto 1fr;gap:8px}
   .master-question-row.question-card>.btn{grid-column:2;justify-self:start}
 }
+
+/* v1.4 通知トースト（⑥質問の重複検知・回数通知など） */
+#toastBox{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(12px);max-width:min(92vw,420px);background:#20242d;color:#fff;padding:10px 16px;border-radius:999px;font-size:.84rem;text-align:center;line-height:1.4;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:90;box-shadow:0 10px 30px rgba(0,0,0,.28)}
+#toastBox.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media(max-width:820px){#toastBox{bottom:96px}}
