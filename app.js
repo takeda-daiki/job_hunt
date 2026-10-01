@@ -614,9 +614,28 @@ function notesPage(){
 function settingsPage(){return `<div class="grid two"><div class="card"><h3>共通設定</h3><p class="muted small">睡眠、貯蓄、投資など全社共通。</p><button class="btn" data-action="edit-common">編集</button></div><div class="card"><h3>生活Scenario</h3><p class="muted small">実家暮らし、一人暮らし等。</p><button class="btn" data-action="manage-scenarios">管理</button></div><div class="card"><h3>デフォルト仮定値</h3><p class="muted small">情報がない企業だけに自動適用。</p><button class="btn" data-action="edit-defaults">編集</button></div><div class="card"><h3>条件管理</h3><p class="muted small">Higher / Preference / Information。</p><button class="btn" data-action="manage-conditions">管理</button></div><div class="card"><h3>データ</h3><p class="muted small">JSONバックアップ、復元、ゴミ箱。</p><div class="row"><button class="btn" data-action="export-json">JSON書き出し</button><button class="btn" data-action="import-json">JSON復元</button><button class="btn" data-action="trash">ゴミ箱</button></div></div><div class="card"><h3>アカウント</h3><div class="small muted">${esc(state.user?.email||'')}</div><button class="btn" style="margin-top:10px" data-action="signout">ログアウト</button></div></div>`;}
 
 function openModal(title,body){
-  closeModal(); const el=document.createElement('div');el.id='modalLayer';el.className='modal-backdrop';el.innerHTML=`<div class="modal"><div class="modal-head"><h3 style="margin:0">${esc(title)}</h3><button class="icon-btn" data-action="close-modal">✕</button></div>${body}</div>`;document.body.appendChild(el);
+  const previous=$('#modalLayer'),returnCompanyId=previous?.dataset.returnCompanyId;
+  const returnScroll=previous?.dataset.detailedCalc==='true'?previous.querySelector('.modal').scrollTop:previous?.dataset.returnScroll;
+  closeModal(); const el=document.createElement('div');el.id='modalLayer';el.className='modal-backdrop';el.innerHTML=`<div class="modal"><div class="modal-head"><h3 style="margin:0">${esc(title)}</h3><button class="icon-btn" data-action="close-modal">✕</button></div>${body}</div>`;
+  if(returnCompanyId){el.dataset.returnCompanyId=returnCompanyId;el.dataset.returnScroll=returnScroll||0;}
+  document.body.appendChild(el);
 }
 function closeModal(){ $('#modalLayer')?.remove(); }
+
+function openDetailedCalc(c,s,scrollTop=0){
+  openModal('詳細計算',detailedCalcModal(c,s));
+  const layer=$('#modalLayer');layer.dataset.detailedCalc='true';layer.dataset.returnCompanyId=c.id;
+  layer.querySelector('.modal').scrollTop=scrollTop;
+}
+
+function returnToDetailedCalc(){
+  const layer=$('#modalLayer'),companyId=layer?.dataset.returnCompanyId;
+  const c=state.companies.find(x=>x.id===companyId);
+  if(!c)return false;
+  const scrollTop=num(layer.dataset.returnScroll);
+  render();openDetailedCalc(c,scenarioForCompany(c),scrollTop);
+  return true;
+}
 
 function companyForm(c={}){return `<form id="companyForm" data-id="${c.id||''}"><div class="form-grid"><div class="form-field full"><label>企業名 *</label><input class="input" name="name" value="${esc(c.name||'')}" required></div><div><label>業界</label><input class="input" name="industry" value="${esc(c.industry||'')}"></div><div><label>選考状況</label><select class="select" name="selection_status">${Object.entries(COMPANY_STATUS_LABEL).map(([k,l])=>`<option value="${k}" ${(c.selection_status||'active')===k?'selected':''}>${l}</option>`).join('')}</select></div><div><label>住宅制度</label><select class="select" name="housingType"><option value="none">なし</option><option value="cash" ${c.settings?.housingType==='cash'?'selected':''}>現金住宅手当</option><option value="leased" ${c.settings?.housingType==='leased'?'selected':''}>借上社宅・寮</option><option value="other" ${c.settings?.housingType==='other'?'selected':''}>その他</option></select></div><div class="full"><label>採用URL</label><input class="input" name="recruit_url" value="${esc(c.recruit_url||'')}"></div><div class="full"><label>簡単なメモ</label><textarea class="textarea" name="memo">${esc(c.memo||'')}</textarea></div></div><div class="row" style="margin-top:14px"><button class="btn primary">保存</button></div></form>`;}
 
@@ -695,7 +714,7 @@ function bindEvents(){
     if(action==='add-company'){openModal('企業追加',companyForm());return;}
     if(action==='edit-company'){const c=state.companies.find(x=>x.id===a.dataset.companyId);openModal('企業情報を編集',companyForm(c));return;}
     if(action==='trash-company'){if(confirm('この企業をゴミ箱へ移しますか？')){await db(supabase.from('companies').update({deleted_at:nowIso()}).eq('id',a.dataset.companyId));await loadAll();state.companyId=null;render();}return;}
-    if(action==='detailed-calc'){const c=state.companies.find(x=>x.id===state.companyId),s=scenarioForCompany(c);openModal('詳細計算',detailedCalcModal(c,s));return;}
+    if(action==='detailed-calc'){const c=state.companies.find(x=>x.id===state.companyId),s=scenarioForCompany(c);openDetailedCalc(c,s);return;}
     if(action==='open-variable'){const c=state.companies.find(x=>x.id===state.companyId),s=scenarioForCompany(c);variableModal(c,s,a.dataset.key);return;}
     if(action==='edit-evidence'){const x=state.companyValues.find(v=>v.id===a.dataset.evidenceId),c=state.companies.find(z=>z.id===state.companyId),sc=scenarioForCompany(c);if(x)openModal(`${VAR_DEFS[x.variable_key].label}：情報編集`,evidenceForm(x.variable_key,sc,x));return;}
     if(action==='delete-evidence'){const x=state.companyValues.find(v=>v.id===a.dataset.evidenceId);if(x&&confirm('この情報を削除しますか？ 画面上からは完全に消えます。')){const key=x.variable_key;await db(supabase.from('company_values').delete().eq('id',x.id));await refreshVariableModal(key);}return;}
@@ -755,7 +774,8 @@ async function submitEvidence(f){
   if(isPrimary) await db(supabase.from('company_values').update({is_primary:false}).eq('company_id',c.id).eq('variable_key',key));
   const payload={user_id:state.user.id,company_id:c.id,scenario_id:fd.get('scenario_specific')==='on'?s.id:null,variable_key:key,central:num(fd.get('central')),low:fd.get('low')===''?null:num(fd.get('low')),high:fd.get('high')===''?null:num(fd.get('high')),certainty:fd.get('certainty'),source_type:fd.get('source_type'),source_label:fd.get('source_label')||null,source_url:fd.get('source_url')||null,note:fd.get('note')||null,is_primary:isPrimary,is_range:fd.get('is_range')==='on',disabled:false};
   if(id) await db(supabase.from('company_values').update(payload).eq('id',id)); else await db(supabase.from('company_values').insert(payload));
-  await refreshVariableModal(key);
+  await loadAll();
+  if(!returnToDetailedCalc()){render();variableModal(c,scenarioForCompany(c),key);}
 }
 async function submitSalarySplit(f){
   const fd=new FormData(f),v=salarySplitValues(f),c=state.companies.find(x=>x.id===state.companyId); if(v.total<=0||v.scheduled<=0)throw new Error('月給と月所定労働時間を確認してください。');
@@ -766,7 +786,7 @@ async function submitSalarySplit(f){
     await db(supabase.from('company_values').update({is_primary:false}).eq('company_id',c.id).eq('variable_key',key));
     await db(supabase.from('company_values').insert({user_id:state.user.id,company_id:c.id,scenario_id:null,variable_key:key,central:value,low:null,high:null,certainty,source_type,source_label,source_url,note:noteBase,is_primary:true,is_range:true,disabled:false}));
   }
-  await loadAll(); closeModal(); render();
+  await loadAll(); if(!returnToDetailedCalc()){closeModal();render();}
 }
 async function upsertConditionEval(cond,c,s,patch){
   const old=conditionEvalRecord(cond,c,s);
@@ -783,13 +803,13 @@ async function submitConditionMemo(f){
   await upsertConditionEval(cond,c,s,{note:fd.get('note')||null}); await loadAll();closeModal();render();
 }
 async function submitNote(f){const fd=new FormData(f),id=f.dataset.id;const payload={user_id:state.user.id,scope_type:fd.get('scope_type'),company_id:fd.get('company_id')||null,industry:fd.get('industry')||null,title:fd.get('title'),body:fd.get('body')||''};let noteId=id;if(id)await db(supabase.from('notes').update(payload).eq('id',id));else{const data=await db(supabase.from('notes').insert(payload).select().single());noteId=data.id;}const files=fd.getAll('files').filter(x=>x&&x.size);for(const file of files){const safe=file.name.replace(/[^a-zA-Z0-9._\-\u3000-\u9fff]/g,'_');const path=`${state.user.id}/${noteId}/${Date.now()}-${safe}`;await db(supabase.storage.from('attachments').upload(path,file,{upsert:false}));await db(supabase.from('attachments').insert({user_id:state.user.id,note_id:noteId,company_id:payload.company_id,storage_path:path,file_name:file.name,mime_type:file.type,size_bytes:file.size}));}await loadAll();closeModal();render();}
-async function submitRichSettings(f,section,defs){const fd=new FormData(f),obj={};for(const k of Object.keys(defs))obj[k]={central:num(fd.get(`${k}__central`)),low:num(fd.get(`${k}__low`)),high:num(fd.get(`${k}__high`)),certainty:section==='companyDefaults'?'assumption':(state.settings[section]?.[k]?.certainty||'confirmed')};state.settings[section]=obj;await saveSettings();closeModal();render();}
+async function submitRichSettings(f,section,defs){const fd=new FormData(f),obj={};for(const k of Object.keys(defs))obj[k]={central:num(fd.get(`${k}__central`)),low:num(fd.get(`${k}__low`)),high:num(fd.get(`${k}__high`)),certainty:section==='companyDefaults'?'assumption':(state.settings[section]?.[k]?.certainty||'confirmed')};state.settings[section]=obj;await saveSettings();if(!returnToDetailedCalc()){closeModal();render();}}
 
 function scenarioManager(){return `<div class="detail-list">${state.scenarios.map(s=>`<div class="detail-row"><div><b>${esc(s.name)}</b><div class="tiny muted">${esc(s.kind)}</div></div><button class="btn" data-action="edit-scenario" data-scenario-id="${s.id}">編集</button><button class="btn danger" data-action="trash-scenario" data-scenario-id="${s.id}">削除</button></div>`).join('')}</div><button class="btn primary" data-action="add-scenario" style="margin-top:12px">＋Scenario</button>`;}
 function scenarioEditForm(s){return `<form id="scenarioEditForm" data-id="${s.id}"><div class="form-field"><label>名称</label><input class="input" name="name" value="${esc(s.name)}"></div><hr>${settingsRichFields(s.settings,SCENARIO_DEFS)}<button class="btn primary">保存</button></form>`;}
 function settingsRichFields(obj,defs){return Object.entries(defs).map(([k,d])=>{const r=richObj(obj[k]);return `<div class="card" style="margin-bottom:8px"><b>${esc(d.label)}</b><div class="form-grid" style="margin-top:8px"><div><label>中央</label><input class="input" type="number" step="any" name="${k}__central" value="${r.central}"></div><div><label>下限</label><input class="input" type="number" step="any" name="${k}__low" value="${r.low}"></div><div><label>上限</label><input class="input" type="number" step="any" name="${k}__high" value="${r.high}"></div></div></div>`;}).join('');}
 function scenarioAddForm(){return `<form id="scenarioAddForm"><div class="form-field"><label>名称</label><input class="input" name="name" required placeholder="例：一人暮らし・家賃高め"></div><div class="form-field" style="margin-top:10px"><label>複製元</label><select class="select" name="base_id">${state.scenarios.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div><button class="btn primary" style="margin-top:14px">追加</button></form>`;}
-async function submitScenarioEdit(f){const s=state.scenarios.find(x=>x.id===f.dataset.id),fd=new FormData(f),settings={};for(const k of Object.keys(SCENARIO_DEFS))settings[k]={central:num(fd.get(`${k}__central`)),low:num(fd.get(`${k}__low`)),high:num(fd.get(`${k}__high`)),certainty:s.settings?.[k]?.certainty||'confirmed'};await db(supabase.from('scenarios').update({name:fd.get('name'),settings}).eq('id',s.id));await loadAll();closeModal();render();}
+async function submitScenarioEdit(f){const s=state.scenarios.find(x=>x.id===f.dataset.id),fd=new FormData(f),settings={};for(const k of Object.keys(SCENARIO_DEFS))settings[k]={central:num(fd.get(`${k}__central`)),low:num(fd.get(`${k}__low`)),high:num(fd.get(`${k}__high`)),certainty:s.settings?.[k]?.certainty||'confirmed'};await db(supabase.from('scenarios').update({name:fd.get('name'),settings}).eq('id',s.id));await loadAll();if(!returnToDetailedCalc()){closeModal();render();}}
 async function submitScenarioAdd(f){const fd=new FormData(f),base=state.scenarios.find(x=>x.id===fd.get('base_id'))||state.scenarios[0];await db(supabase.from('scenarios').insert({user_id:state.user.id,name:fd.get('name'),kind:'custom',settings:structuredClone(base.settings)}));await loadAll();closeModal();render();}
 
 function conditionManager(){
