@@ -659,6 +659,12 @@ function openModal(title,body){
 }
 function closeModal(){ $('#modalLayer')?.remove(); }
 
+function dismissModal(){
+  const layer=$('#modalLayer');
+  if(layer?.dataset.detailedCalc!=='true'&&returnToDetailedCalc())return;
+  closeModal();
+}
+
 function openDetailedCalc(c,s,scrollTop=0){
   openModal('詳細計算',detailedCalcModal(c,s));
   const layer=$('#modalLayer');layer.dataset.detailedCalc='true';layer.dataset.returnCompanyId=c.id;
@@ -712,7 +718,7 @@ function bindEvents(){
     const comp=e.target.closest('[data-company]'); if(comp&&!pendingAction){state.companyId=comp.dataset.company;state.companyTab='overview';render();return;}
     const tab=e.target.closest('[data-company-tab]'); if(tab){state.companyTab=tab.dataset.companyTab;render();return;}
     const a=e.target.closest('[data-action]'); if(!a)return; const action=a.dataset.action;
-    if(action==='close-modal'){closeModal();return;}
+    if(action==='close-modal'){dismissModal();return;}
     if(action==='toggle-rejected'){state.showRejected=!state.showRejected;render();return;}
     if(action==='add-es'){openModal('ES追加',esApplicationForm());return;}
     if(action==='edit-es'){const app=state.esApplications.find(x=>x.id===a.dataset.esId);if(app)openModal('ES編集',esApplicationForm(app));return;}
